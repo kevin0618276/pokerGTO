@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GTO Private Tool</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background:#1a1a1a; color:#eee; margin:0; padding:15px; }
+        h3 { color: #ff1744; margin-top: 0; }
+        .input-group { background: #2d2d2d; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+        input { background: #444; border: 1px solid #555; color: #fff; padding: 8px; width: 80%; border-radius: 4px; }
+        
+        /* 快速輸入面板 */
+        .selector { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 10px; }
+        .btn { background: #3d3d3d; border: none; color: white; padding: 10px 0; border-radius: 4px; text-align: center; cursor: pointer; }
+        .btn:active { background: #ff1744; }
+        .suit-s { color: #fff; } .suit-h { color: #ff5252; } .suit-d { color: #448aff; } .suit-c { color: #4caf50; }
+        
+        .calc-btn { width: 100%; padding: 15px; background: #ff1744; border: none; color: white; font-weight: bold; border-radius: 8px; margin: 15px 0; font-size: 16px; }
+        .result { background: #000; padding: 15px; border-left: 4px solid #ff1744; border-radius: 4px; line-height: 1.6; }
+        .highlight { color: #ffea00; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<h3>🃏 GTO GOD (Mobile Ready)</h3>
+
+<div class="input-group">
+    手牌: <input id="hand" placeholder="點擊下方按鈕輸入" readonly>
+    <div class="selector" id="rank-btns"></div>
+    <div class="selector" id="suit-btns"></div>
+    <button class="btn" style="grid-column: span 4; background:#555;" onclick="clearHand()">清除手牌</button>
+</div>
+
+<div class="input-group">
+    公牌: <input id="board" placeholder="例如: AhKd7s">
+    <div style="margin-top:10px;">
+        底池: <input id="pot" type="number" value="10" style="width:60px"> 
+        下注: <input id="bet" type="number" value="5" style="width:60px">
+    </div>
+</div>
+
+<button class="calc-btn" onclick="runSimulation()">開始計算 (5000次模擬)</button>
+
+<div class="result" id="res">等待資料輸入...</div>
+
+<script>
+const ranks = "23456789TJQKA";
+const suits = ["s", "h", "d", "c"];
+let currentHand = "";
+
+// 初始化按鈕
+function initUI() {
+    const rDiv = document.getElementById('rank-btns');
+    "AKQJT98765432".split('').forEach(r => {
+        rDiv.innerHTML += `<div class="btn" onclick="addChar('${r}')">${r}</div>`;
+    });
+    const sDiv = document.getElementById('suit-btns');
+    suits.forEach(s => {
+        sDiv.innerHTML += `<div class="btn suit-${s}" onclick="addChar('${s}')">${s.toUpperCase()}</div>`;
+    });
+}
+
+function addChar(c) {
+    currentHand += c;
+    if(currentHand.length > 4) currentHand = currentHand.slice(-4);
+    document.getElementById('hand').value = currentHand;
+}
+
+function clearHand() { currentHand = ""; document.getElementById('hand').value = ""; }
+
+// --- 核心邏輯：修正牌型判斷 (增加同花/順子) ---
+function evaluate(cards) {
+    const rIdx = cards.map(c => ranks.indexOf(c[0])).sort((a,b)=>b-a);
+    const sMap = {};
+    cards.forEach(c => sMap[c[1]] = (sMap[c[1]] || 0) + 1);
+    
+    const isFlush = Object.values(sMap).some(v => v >= 5);
+    const uniqueRanks = [...new Set(rIdx)];
+    let isStraight = false;
+    for(let i=0; i<=uniqueRanks.length-5; i++) {
+        if(uniqueRanks[i] - uniqueRanks[i+4] === 4) isStraight = true;
+    }
+    // A5432 順子判斷
+    if(uniqueRanks.includes(12) && [3,2,1,0].every(v => uniqueRanks.includes(v))) isStraight = true;
+
+    const counts = {};
+    rIdx.forEach(r => counts[r] = (counts[r]||0)+1);
+    const v = Object.values(counts).sort((a,b)=>b-a);
+    const pairs = v.filter(x => x===2).length;
+
+    if (isFlush && isStraight) return 8;
+    if (v[0] === 4) return 7;
+    if (v[0] === 3 && v[1] >= 2) return 6;
+    if (isFlush) return 5;
+    if (isStraight) return 4;
+    if (v[0] === 3) return 3;
+    if (pairs >= 2) return 2;
+    if (v[0] === 2) return 1;
+    return 0;
+}
+
+function runSimulation() {
+    const handStr = document.getElementById('hand').value;
+    const boardStr = document.getElementById('board').value;
+    if(handStr.length < 4) return alert("請輸入正確手牌");
+
+    const hand = [handStr.slice(0,2), handStr.slice(2,4)];
+    const board = boardStr.match(/.{1,2}/g) || [];
+    const pot = parseFloat(document.getElementById('pot').value);
+    const bet = parseFloat(document.getElementById('bet').value);
+
+    let wins = 0;
+    const iterations = 5000;
+    const deck = [];
+    for(let r of ranks) for(let s of suits) deck.push(r+s);
+    const available = deck.filter(c => !hand.includes(c) && !board.includes(c));
+
+    for(let i=0; i<iterations; i++) {
+        let shuff = [...available].sort(() => Math.random() - 0.5);
+        let opp = [shuff[0], shuff[1]];
+        let simBoard = [...board];
+        while(simBoard.length < 5) simBoard.push(shuff[simBoard.length + 2]);
+        
+        const myS = evaluate([...hand, ...simBoard]);
+        const oppS = evaluate([...opp, ...simBoard]);
+        if(myS > oppS) wins += 1;
+        else if(myS === oppS) wins += 0.5;
+    }
+
+    const equity = wins / iterations;
+    const potOdds = bet / (pot + bet);
+    const mdf = pot / (pot + bet); // 最小防禦頻率
+
+    let advice = equity > potOdds ? "✅ CALL / RAISE (正期望值)" : "❌ FOLD (期望值過低)";
+    if (equity > 0.8) advice = "🔥 ALL-IN / VALUE BET";
+
+    document.getElementById('res').innerHTML = `
+        勝率: <span class="highlight">${(equity*100).toFixed(1)}%</span><br>
+        Pot Odds: ${(potOdds*100).toFixed(1)}%<br>
+        MDF: ${(mdf*100).toFixed(1)}% (應防禦比例)<br>
+        建議: <strong>${advice}</strong>
+    `;
+}
+
+initUI();
+</script>
+</body>
+</html>
